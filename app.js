@@ -1,6 +1,5 @@
 const express = require("express");
 const mongoose = require("mongoose");
-const Note = require("./models/Note");
 const path = require('path');
 const md = require('marked');
 
@@ -13,6 +12,33 @@ app.set('views', 'views');
 
 app.use(express.urlencoded({ extended: true }));
 app.use('/assets', express.static(path.join(__dirname, 'assets')));
+
+const NoteSchema = new mongoose.Schema({
+  title: { type: String },
+  body: { type: String }
+});
+NoteSchema.methods.truncateBody = function() {
+  if (this.body && this.body.length > 75) {
+    return this.body.substring(0, 70) + " ...";
+  }
+  return this.body;
+};
+const Note = mongoose.model("Note", NoteSchema);
+
+const VisitorSchema = new mongoose.Schema({
+  path: String,
+  date: { type: Date, default: Date.now },
+  userAgent: String
+});
+const Visitor = mongoose.model("Visitor", VisitorSchema);
+
+app.use(async (req, res, next) => {
+  if (req.method == "GET") {
+    const visitor = new Visitor({ path: req.path, userAgent: req.get('User-Agent') });
+    await visitor.save();
+  }
+  next();
+});
 
 app.get("/", async (req, res) => {
   const notes = await Note.find();
@@ -71,6 +97,11 @@ app.patch("/notes/:id", async (req, res) => {
 app.delete("/notes/:id", async (req, res) => {
   await Note.deleteOne({ _id: req.params.id });
   res.status(204).send({});
+});
+
+app.get("/analytics", async (req, res) => {
+  const pageViews = await Visitor.aggregate().group({ _id: "$path", count: { $sum: 1 } }).sort('-count').exec();
+  res.render("analytics", { pageViews: pageViews });
 });
 
 app.listen(3000, () => console.log("Listening on port 3000 ..."));
